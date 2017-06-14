@@ -66,7 +66,7 @@ var (
 	kubernetes              = flag.String("kubernetes", "", "Kuberentes master location. Leave blank for default")
 	cloudConfig             = flag.String("cloud-config", "", "The path to the cloud provider configuration file.  Empty string for no configuration file.")
 	configMapName           = flag.String("configmap", "", "The name of the ConfigMap containing settings used for dynamic reconfiguration. Empty string for no ConfigMap.")
-	namespace               = flag.String("namespace", "kube-system", "Namespace in which cluster-autoscaler run. If a --configmap flag is also provided, ensure that the configmap exists in this namespace before CA runs.")
+	caNamespace             = flag.String("cluster-autoscaler-namespace", "kube-system", "Namespace in which cluster-autoscaler run. If a --configmap flag is also provided, ensure that the configmap exists in this namespace before CA runs.")
 	nodeGroupAutoDiscovery  = flag.String("node-group-auto-discovery", "", "One or more definition(s) of node group auto-discovery. A definition is expressed `<name of discoverer per cloud provider>:[<key>[=<value>]]`. Only the `aws` cloud provider is currently supported. The only valid discoverer for it is `asg` and the valid key is `tag`. For example, specifying `--cloud-provider aws` and `--node-group-auto-discovery asg:tag=cluster-autoscaler/auto-discovery/enabled` resuls in ASGs tagged with `cluster-autoscaler/auto-discovery/enabled` to be considered as target node groups")
 	verifyUnschedulablePods = flag.Bool("verify-unschedulable-pods", true,
 		"If enabled CA will ensure that each pod marked by Scheduler as unschedulable actually can't be scheduled on any node."+
@@ -128,12 +128,12 @@ func createAutoscalerOptions() core.AutoscalerOptions {
 		VerifyUnschedulablePods:       *verifyUnschedulablePods,
 		WriteStatusConfigMap:          *writeStatusConfigMapFlag,
 		BalanceSimilarNodeGroups:      *balanceSimilarNodeGroupsFlag,
-		ConfigNamespace:               *namespace,
+		ConfigNamespace:               *caNamespace,
 	}
 
 	configFetcherOpts := dynamic.ConfigFetcherOptions{
 		ConfigMapName: *configMapName,
-		Namespace:     *namespace,
+		Namespace:     *caNamespace,
 	}
 
 	return core.AutoscalerOptions{
@@ -260,7 +260,7 @@ func main() {
 		kube_leaderelection.RunOrDie(kube_leaderelection.LeaderElectionConfig{
 			Lock: &resourcelock.EndpointsLock{
 				EndpointsMeta: metav1.ObjectMeta{
-					Namespace: *namespace,
+					Namespace: *caNamespace,
 					Name:      "cluster-autoscaler",
 				},
 				Client: kubeClient.Core(),
