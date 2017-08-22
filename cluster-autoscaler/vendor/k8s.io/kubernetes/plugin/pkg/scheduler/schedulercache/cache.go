@@ -187,7 +187,7 @@ func (cache *schedulerCache) addPod(pod *v1.Pod) {
 		n = NewNodeInfo()
 		cache.nodes[pod.Spec.NodeName] = n
 	}
-	n.addPod(pod)
+	n.AddPod(pod)
 }
 
 // Assumes that lock is already acquired.

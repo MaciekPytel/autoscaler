@@ -62,18 +62,11 @@ func (estimator *BinpackingNodeEstimator) Estimate(pods []*apiv1.Pod, nodeTempla
 	podInfos := calculatePodScore(pods, nodeTemplate)
 	sort.Sort(byScoreDesc(podInfos))
 
-	// nodeWithPod function returns NodeInfo, which is a copy of nodeInfo argument with an additional pod scheduled on it.
-	nodeWithPod := func(nodeInfo *schedulercache.NodeInfo, pod *apiv1.Pod) *schedulercache.NodeInfo {
-		podsOnNode := nodeInfo.Pods()
-		podsOnNode = append(podsOnNode, pod)
-		newNodeInfo := schedulercache.NewNodeInfo(podsOnNode...)
-		newNodeInfo.SetNode(nodeInfo.Node())
-		return newNodeInfo
-	}
-
 	newNodes := make([]*schedulercache.NodeInfo, 0)
 	for _, node := range comingNodes {
-		newNodes = append(newNodes, node)
+		newNodeInfo := schedulercache.NewNodeInfo(node.Pods()...)
+		newNodeInfo.SetNode(node.Node())
+		newNodes = append(newNodes, newNodeInfo)
 	}
 
 	for _, podInfo := range podInfos {
@@ -81,12 +74,16 @@ func (estimator *BinpackingNodeEstimator) Estimate(pods []*apiv1.Pod, nodeTempla
 		for i, nodeInfo := range newNodes {
 			if err := estimator.predicateChecker.CheckPredicates(podInfo.pod, nodeInfo); err == nil {
 				found = true
-				newNodes[i] = nodeWithPod(nodeInfo, podInfo.pod)
+				newNodes[i].AddPod(podInfo.pod)
 				break
 			}
 		}
 		if !found {
-			newNodes = append(newNodes, nodeWithPod(nodeTemplate, podInfo.pod))
+			podsOnNode := nodeTemplate.Pods()
+			podsOnNode = append(podsOnNode, podInfo.pod)
+			newNodeInfo := schedulercache.NewNodeInfo(podsOnNode...)
+			newNodeInfo.SetNode(nodeTemplate.Node())
+			newNodes = append(newNodes, newNodeInfo)
 		}
 	}
 	return len(newNodes) - len(comingNodes)

@@ -166,7 +166,7 @@ func NewNodeInfo(pods ...*v1.Pod) *NodeInfo {
 		usedPorts:           make(map[int]bool),
 	}
 	for _, pod := range pods {
-		ni.addPod(pod)
+		ni.AddPod(pod)
 	}
 	return ni
 }
@@ -298,8 +298,8 @@ func hasPodAffinityConstraints(pod *v1.Pod) bool {
 	return affinity != nil && (affinity.PodAffinity != nil || affinity.PodAntiAffinity != nil)
 }
 
-// addPod adds pod information to this NodeInfo.
-func (n *NodeInfo) addPod(pod *v1.Pod) {
+// AddPod adds pod information to this NodeInfo.
+func (n *NodeInfo) AddPod(pod *v1.Pod) {
 	res, non0_cpu, non0_mem := calculateResource(pod)
 	n.requestedResource.MilliCPU += res.MilliCPU
 	n.requestedResource.Memory += res.Memory
