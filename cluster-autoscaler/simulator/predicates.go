@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"time"
 
 	apiv1 "k8s.io/api/core/v1"
 	kube_util "k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
@@ -53,9 +54,15 @@ type predicateInfo struct {
 	predicate algorithm.FitPredicate
 }
 
+type predicateStatistics struct {
+	callCount     int64
+	totalDuration time.Duration
+}
+
 // PredicateChecker checks whether all required predicates are matched for given Pod and Node
 type PredicateChecker struct {
 	predicates []predicateInfo
+	predicateStats map[string]*predicateStatistics
 }
 
 // there are no const arrays in go, this is meant to be used as a const
@@ -109,7 +116,9 @@ func NewPredicateChecker(kubeClient kube_client.Interface, stop <-chan struct{})
 		predicateList = append(predicateList, predicateInfo{name: predicateName, predicate: predicate})
 	}
 
+	predStats := make(map[string]*predicateStatistics, 0)
 	for _, predInfo := range predicateList {
+		predStats[predInfo.name] = &predicateStatistics{callCount: 0, totalDuration: time.Duration(0)}
 		glog.V(1).Infof("Using predicate %s", predInfo.name)
 	}
 
@@ -118,6 +127,7 @@ func NewPredicateChecker(kubeClient kube_client.Interface, stop <-chan struct{})
 
 	return &PredicateChecker{
 		predicates: predicateList,
+		predicateStats: predStats,
 	}, nil
 }
 
@@ -136,6 +146,10 @@ func NewTestPredicateChecker() *PredicateChecker {
 		predicates: []predicateInfo{
 			{name: "default", predicate: predicates.GeneralPredicates},
 			{name: "ready", predicate: isNodeReadyAndSchedulablePredicate},
+		},
+		predicateStats: map[string]*predicateStatistics{
+			"default": &predicateStatistics{callCount: 0, totalDuration: time.Duration(0)},
+			"ready":   &predicateStatistics{callCount: 0, totalDuration: time.Duration(0)},
 		},
 	}
 }
@@ -160,7 +174,10 @@ func (p *PredicateChecker) FitsAny(pod *apiv1.Pod, nodeInfos map[string]*schedul
 // messages gets very expensive, so we only do it if verbose is set to ReturnVerboseError.
 func (p *PredicateChecker) CheckPredicates(pod *apiv1.Pod, nodeInfo *schedulercache.NodeInfo, verbosity ErrorVerbosity) error {
 	for _, predInfo := range p.predicates {
+		start := time.Now()
 		match, failureReason, err := predInfo.predicate(pod, nil, nodeInfo)
+		p.predicateStats[predInfo.name].callCount += 1
+		p.predicateStats[predInfo.name].totalDuration += time.Now().Sub(start)
 
 		if verbosity == ReturnSimpleError && (err != nil || !match) {
 			return errors.New("Predicates failed")
@@ -187,4 +204,12 @@ func (p *PredicateChecker) CheckPredicates(pod *apiv1.Pod, nodeInfo *schedulerca
 		}
 	}
 	return nil
+}
+
+func (p *PredicateChecker) LogPredicateStats() {
+	for name, stats := range p.predicateStats {
+		if stats.callCount > 0 {
+			glog.Errorf("Predicate statistics for %s: called %v times, total time %v, mean duration %v", name, stats.callCount, stats.totalDuration, stats.totalDuration / time.Duration(stats.callCount))
+		}
+	}
 }

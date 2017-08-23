@@ -91,6 +91,8 @@ func (a *StaticAutoscaler) RunOnce(currentTime time.Time) errors.AutoscalerError
 	autoscalingContext := a.AutoscalingContext
 	runStart := time.Now()
 
+	autoscalingContext.PredicateChecker.LogPredicateStats()
+
 	readyNodes, err := readyNodeLister.List()
 	if err != nil {
 		glog.Errorf("Failed to list ready nodes: %v", err)
@@ -304,6 +306,7 @@ func (a *StaticAutoscaler) RunOnce(currentTime time.Time) errors.AutoscalerError
 
 // ExitCleanUp removes status configmap.
 func (a *StaticAutoscaler) ExitCleanUp() {
+	a.AutoscalingContext.PredicateChecker.LogPredicateStats()
 	if !a.AutoscalingContext.WriteStatusConfigMap {
 		return
 	}

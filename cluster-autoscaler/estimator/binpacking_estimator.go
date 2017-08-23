@@ -18,11 +18,14 @@ package estimator
 
 import (
 	"sort"
+	"time"
 
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/autoscaler/cluster-autoscaler/simulator"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
+
+	"github.com/golang/glog"
 )
 
 // podInfo contains Pod and score that corresponds to how important it is to handle the pod first.
@@ -59,15 +62,22 @@ func NewBinpackingNodeEstimator(predicateChecker *simulator.PredicateChecker) *B
 func (estimator *BinpackingNodeEstimator) Estimate(pods []*apiv1.Pod, nodeTemplate *schedulercache.NodeInfo,
 	comingNodes []*schedulercache.NodeInfo) int {
 
+	setupStart := time.Now()
 	podInfos := calculatePodScore(pods, nodeTemplate)
 	sort.Sort(byScoreDesc(podInfos))
+	glog.Errorf("BINPACKING setup took %v", time.Now().Sub(setupStart))
+
+	totalNIDuration := time.Duration(0)
+	totalPCDuration := time.Duration(0)
 
 	// nodeWithPod function returns NodeInfo, which is a copy of nodeInfo argument with an additional pod scheduled on it.
 	nodeWithPod := func(nodeInfo *schedulercache.NodeInfo, pod *apiv1.Pod) *schedulercache.NodeInfo {
+		start := time.Now()
 		podsOnNode := nodeInfo.Pods()
 		podsOnNode = append(podsOnNode, pod)
 		newNodeInfo := schedulercache.NewNodeInfo(podsOnNode...)
 		newNodeInfo.SetNode(nodeInfo.Node())
+		totalNIDuration += time.Now().Sub(start)
 		return newNodeInfo
 	}
 
@@ -79,7 +89,10 @@ func (estimator *BinpackingNodeEstimator) Estimate(pods []*apiv1.Pod, nodeTempla
 	for _, podInfo := range podInfos {
 		found := false
 		for i, nodeInfo := range newNodes {
-			if err := estimator.predicateChecker.CheckPredicates(podInfo.pod, nodeInfo, simulator.ReturnSimpleError); err == nil {
+			start := time.Now()
+			err := estimator.predicateChecker.CheckPredicates(podInfo.pod, nodeInfo, simulator.ReturnSimpleError)
+			totalPCDuration += time.Now().Sub(start)
+			if err == nil {
 				found = true
 				newNodes[i] = nodeWithPod(nodeInfo, podInfo.pod)
 				break
@@ -89,6 +102,8 @@ func (estimator *BinpackingNodeEstimator) Estimate(pods []*apiv1.Pod, nodeTempla
 			newNodes = append(newNodes, nodeWithPod(nodeTemplate, podInfo.pod))
 		}
 	}
+	glog.Errorf("BINPACKING NodeInfo creation took %v", totalNIDuration)
+	glog.Errorf("BINPACKING running predicates took %v", totalPCDuration)
 	return len(newNodes) - len(comingNodes)
 }
 
