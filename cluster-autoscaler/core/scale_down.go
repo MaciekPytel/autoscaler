@@ -184,6 +184,8 @@ func (sd *ScaleDown) UpdateUnneededNodes(
 	}
 
 	// Phase2 - check which nodes can be probably removed using fast drain.
+	glog.Info("Starting unneededNodes phase2")
+	phaseStart := time.Now()
 	nodesToRemove, unremovable, newHints, simulatorErr := simulator.FindNodesToRemove(currentlyUnneededNodes, nodes, pods,
 		nil, sd.context.PredicateChecker,
 		len(currentlyUnneededNodes), true, sd.podLocationHints, sd.usageTracker, timestamp, pdbs)
@@ -197,6 +199,7 @@ func (sd *ScaleDown) UpdateUnneededNodes(
 
 		return simulatorErr.AddPrefix("error while simulating node drains: ")
 	}
+	glog.Errorf("UNNEEDED phase 2: %v", time.Now().Sub(phaseStart))
 
 	// Update the timestamp map.
 	result := make(map[string]time.Time)

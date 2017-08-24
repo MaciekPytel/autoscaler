@@ -106,6 +106,8 @@ func ScaleUp(context *AutoscalingContext, unschedulablePods []*apiv1.Pod, nodes 
 			continue
 		}
 
+		glog.Info("Starting initial predicate calculation")
+		initialPredicatesStart := time.Now()
 		for _, pod := range unschedulablePods {
 			err = context.PredicateChecker.CheckPredicates(pod, nodeInfo, simulator.ReturnVerboseError)
 			if err == nil {
@@ -118,6 +120,8 @@ func ScaleUp(context *AutoscalingContext, unschedulablePods []*apiv1.Pod, nodes 
 				}
 			}
 		}
+		glog.Errorf("INITIAL SCALE-UP predicates: %v", time.Now().Sub(initialPredicatesStart))
+
 		passingPods := make([]*apiv1.Pod, len(option.Pods))
 		copy(passingPods, option.Pods)
 		podsPassingPredicates[nodeGroup.Id()] = passingPods
