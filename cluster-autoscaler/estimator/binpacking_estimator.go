@@ -90,7 +90,7 @@ func (estimator *BinpackingNodeEstimator) Estimate(pods []*apiv1.Pod, nodeTempla
 		found := false
 		for i, nodeInfo := range newNodes {
 			start := time.Now()
-			err := estimator.predicateChecker.CheckPredicates(podInfo.pod, nodeInfo, simulator.ReturnSimpleError)
+			err := estimator.predicateChecker.CheckPredicates(podInfo.pod, nil, nodeInfo, simulator.ReturnSimpleError)
 			totalPCDuration += time.Now().Sub(start)
 			if err == nil {
 				found = true
