@@ -47,6 +47,10 @@ const (
 	// This significantly improves performance and is useful if the error message
 	// is discarded anyway.
 	ReturnSimpleError ErrorVerbosity = false
+
+	// We want to disable affinity predicate for performance reasons if no ppod
+	// requires it
+	affinityPredicateName = "MatchInterPodAffinity"
 )
 
 type predicateInfo struct {
@@ -64,6 +68,7 @@ type PredicateChecker struct {
 	predicates []predicateInfo
 	predicateStats map[string]*predicateStatistics
 	predicateMetadataProducer algorithm.MetadataProducer
+	enableAffinityPredicate   bool
 }
 
 // there are no const arrays in go, this is meant to be used as a const
@@ -135,6 +140,7 @@ func NewPredicateChecker(kubeClient kube_client.Interface, stop <-chan struct{})
 		predicates: predicateList,
 		predicateStats: predStats,
 		predicateMetadataProducer: metadataProducer,
+		enableAffinityPredicate:   true,
 	}, nil
 }
 
@@ -165,11 +171,22 @@ func NewTestPredicateChecker() *PredicateChecker {
 }
 
 func (p *PredicateChecker) GetPredicateMetadata(pod *apiv1.Pod, nodeInfos map[string]*schedulercache.NodeInfo) interface{} {
+	if !p.enableAffinityPredicate {
+		return nil
+	}
 	start := time.Now()
 	result := p.predicateMetadataProducer(pod, nodeInfos)
 	p.predicateStats["__precompute"].callCount += 1
 	p.predicateStats["__precompute"].totalDuration += time.Now().Sub(start)
 	return result
+}
+
+// SetAffinityPredicateEnabled can be used to enable or disable checking MatchInterPodAffinity
+// predicate. This will cause incorrect CA behavior if there is at least a single pod in
+// cluster using affinity/antiaffinity. However, checking affinity predicate is extremly
+// costly even if no pod is using it, so it may be worth disabling it in such situation.
+func (p *PredicateChecker) SetAffinityPredicateEnabled(enable bool) {
+	p.enableAffinityPredicate = enable
 }
 
 // FitsAny checks if the given pod can be place on any of the given nodes.
@@ -192,6 +209,11 @@ func (p *PredicateChecker) FitsAny(pod *apiv1.Pod, nodeInfos map[string]*schedul
 // messages gets very expensive, so we only do it if verbose is set to ReturnVerboseError.
 func (p *PredicateChecker) CheckPredicates(pod *apiv1.Pod, predicateMetadata interface{}, nodeInfo *schedulercache.NodeInfo, verbosity ErrorVerbosity) error {
 	for _, predInfo := range p.predicates {
+		// skip affinity predicate if it has been disabled
+		if !p.enableAffinityPredicate && predInfo.name == affinityPredicateName {
+			continue
+		}
+
 		start := time.Now()
 		match, failureReason, err := predInfo.predicate(pod, predicateMetadata, nodeInfo)
 		p.predicateStats[predInfo.name].callCount += 1
