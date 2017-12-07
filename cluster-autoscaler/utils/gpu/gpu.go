@@ -17,8 +17,14 @@ limitations under the License.
 package gpu
 
 import (
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 
 	"github.com/golang/glog"
 )
@@ -32,6 +38,18 @@ const (
 	// don't specify what type of GPU his pod wants.
 	DefaultGPUType = "nvidia-tesla-k80"
 )
+
+// GpuRequestInfo contains an information about a set of pods requesting a GPU.
+type GpuRequestInfo struct {
+	// MaxRequest is maximum GPU request among pods
+	MaxRequest resource.Quantity
+	// Pods is a list of pods requesting GPU
+	Pods []*apiv1.Pod
+	// SystemLabels is a set of system labels corresponding to selected GPU
+	// that needs to be passed to cloudprovider
+	SystemLabels map[string]string
+}
+
 
 // FilterOutNodesWithUnreadyGpus removes nodes that should have GPU, but don't have it in allocatable
 // from ready nodes list and updates their status to unready on all nodes list.
@@ -92,17 +110,6 @@ func getUnreadyNodeCopy(node *apiv1.Node) (*apiv1.Node, error) {
 	return newNode, nil
 }
 
-// GpuRequestInfo contains an information about a set of pods requesting a GPU.
-type GpuRequestInfo struct {
-	// MaxRequest is maximum GPU request among pods
-	MaxRequest resource.Quantity
-	// Pods is a list of pods requesting GPU
-	Pods []*apiv1.Pod
-	// SystemLabels is a set of system labels corresponding to selected GPU
-	// that needs to be passed to cloudprovider
-	SystemLabels map[string]string
-}
-
 // GetGpuRequests returns a GpuRequestInfo for each type of GPU requested by
 // any pod in pods argument. If the pod requests GPU, but doesn't specify what
 // type of GPU it wants (via NodeSelector) it assumes it's DefaultGPUType.
@@ -142,4 +149,60 @@ func GetGpuRequests(pods []*apiv1.Pod) map[string]GpuRequestInfo {
 		result[gpuType] = requestInfo
 	}
 	return result
+}
+
+// GetNodeTargetGpus returns the number of gpus on a given node. This includes gpus which are not yet
+// ready to use and visible in kubernetes.
+func GetNodeTargetGpus(node *apiv1.Node, nodeGroup cloudprovider.NodeGroup) (gpuType string, gpuCount int64, err error) {
+	gpuLabel, found := node.Labels[GPULabel]
+	if !found {
+		return "", 0, nil
+	}
+	gpuAllocatable, found := node.Status.Allocatable[ResourceNvidiaGPU]
+	if found && gpuAllocatable.Value() > 0 {
+		return gpuLabel, gpuAllocatable.Value(), nil
+	}
+	// A node is supposed to have GPUs (based on label), but it's they're not available yet
+	// (driver haven't installed yet?).
+	// Unfortunately we can't deduce how many GPUs it will actually have from labels (just
+	// that it will have some).
+	// Ready for some evil hacks? Well, you won't be disappointed - let's pretend we haven't
+	// seen the node and just use the template we use for scale from 0. It'll be our little
+	// secret.
+	template, err := nodeGroup.TemplateNodeInfo()
+	if err != nil {
+		glog.Errorf("Failed to build template for getting GPU estimation for node %v: %v", node.Name, err)
+		return "", 0, err
+	}
+	if gpuCapacity, found := template.Node().Status.Capacity[ResourceNvidiaGPU]; found {
+		return gpuLabel, gpuCapacity.Value(), nil
+	}
+	errStr := fmt.Sprintf("Node %v with gpu label is not supposed to have GPU", node.Name)
+	glog.Error(errStr)
+	return "", 0, errors.New(errStr)
+}
+
+// ParseGpuLimits parses config specified with --gpu-total flags and returns 2 dictionaries,
+// respectively with min and max values for each gpu.
+func ParseGpuLimits(gpuConfigs []string) (minLimits, maxLimits map[string]int64, err error) {
+	mins := make(map[string]int64)
+	maxes := make(map[string]int64)
+	for _, config := range gpuConfigs {
+		parts := strings.Split(config, ":")
+		if len(parts) != 3 {
+			return nil, nil, fmt.Errorf("Incorrect gpu limit specification: %v", config)
+		}
+		minVal, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Incorrect gpu limit - min is not integer: %v", config)
+		}
+		maxVal, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Incorrect gpu limit - max is not integer: %v", config)
+		}
+		mins[parts[0]] = minVal
+		maxes[parts[0]] = maxVal
+	}
+	glog.V(3).Infof("Parsed gpu limits from flag. Min limits: %v max limits: %v", mins, maxes)
+	return mins, maxes, nil
 }

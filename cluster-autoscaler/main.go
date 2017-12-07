@@ -65,7 +65,9 @@ func (flag *MultiStringFlag) Set(value string) error {
 }
 
 var (
-	nodeGroupsFlag         MultiStringFlag
+	nodeGroupsFlag MultiStringFlag
+	gpuTotalFlag   MultiStringFlag
+
 	clusterName            = flag.String("cluster-name", "", "Autoscaled cluster name, if available")
 	address                = flag.String("address", ":8085", "The address to expose prometheus metrics.")
 	kubernetes             = flag.String("kubernetes", "", "Kubernetes master location. Leave blank for default")
@@ -159,6 +161,7 @@ func createAutoscalerOptions() core.AutoscalerOptions {
 		MinCoresTotal:                    minCoresTotal,
 		MaxMemoryTotal:                   maxMemoryTotal,
 		MinMemoryTotal:                   minMemoryTotal,
+		GpuTotal:                         gpuTotalFlag,
 		NodeGroups:                       nodeGroupsFlag,
 		ScaleDownDelayAfterAdd:           *scaleDownDelayAfterAdd,
 		ScaleDownDelayAfterDelete:        *scaleDownDelayAfterDelete,
@@ -280,6 +283,8 @@ func main() {
 	bindFlags(&leaderElection, pflag.CommandLine)
 	flag.Var(&nodeGroupsFlag, "nodes", "sets min,max size and other configuration data for a node group in a format accepted by cloud provider."+
 		"Can be used multiple times. Format: <min>:<max>:<other...>")
+	flag.Var(&gpuTotalFlag, "gpu-total", "Minimum and maximum number of different GPUs in cluster, in the format <gpu_type>:<min>:<max>. Cluster autoscaler will not scale the cluster beyond these numbers. Can be passed multiple times. CURRENTLY THIS FLAG ONLY WORKS ON GKE.")
+
 	kube_flag.InitFlags()
 
 	healthCheck := metrics.NewHealthCheck(*maxInactivityTimeFlag, *maxFailingTimeFlag)
